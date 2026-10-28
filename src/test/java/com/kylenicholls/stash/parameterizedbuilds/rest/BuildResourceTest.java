@@ -12,6 +12,7 @@ import com.atlassian.bitbucket.hook.repository.RepositoryHook;
 import com.atlassian.bitbucket.pull.PullRequestRef;
 import com.google.common.collect.Lists;
 import org.junit.Before;
+import org.mockito.ArgumentCaptor;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.powermock.api.mockito.PowerMockito;
@@ -155,6 +156,60 @@ public class BuildResourceTest {
 
         assertEquals(Response.Status.OK.getStatusCode(), results.getStatus());
         assertEquals(message.getMessage(), results.getEntity());
+    }
+
+    private Map<String, Object> triggerAndCaptureParams(MultivaluedMap<String, String> query) {
+        JenkinsResponse message = new JenkinsResponse.JenkinsMessage().error(false).build();
+        jobs.add(new Job.JobBuilder(0).jobName("job").build());
+        when(uriInfo.getQueryParameters()).thenReturn(query);
+        ArgumentCaptor<Job> jobCaptor = ArgumentCaptor.forClass(Job.class);
+        when(jenkinsConn.triggerJob(any(), any(), jobCaptor.capture(), any())).thenReturn(message);
+
+        rest.triggerBuild(repository, "0", "test", uriInfo);
+
+        Map<String, Object> params = new LinkedHashMap<>();
+        jobCaptor.getValue().getBuildParameters()
+                .forEach(e -> params.put(e.getKey(), e.getValue()));
+        return params;
+    }
+
+    @Test
+    public void testTriggerBuildAddsTriggerUser() {
+        ApplicationUser clicker = mock(ApplicationUser.class);
+        when(clicker.getName()).thenReturn("xinyu.gan@memblaze.com");
+        when(authContext.getCurrentUser()).thenReturn(clicker);
+        MultivaluedMap<String, String> query = new MultivaluedMapImpl();
+        query.add("PR", "http://bitbucket/pr/1");
+
+        Map<String, Object> params = triggerAndCaptureParams(query);
+
+        assertEquals("http://bitbucket/pr/1", params.get("PR"));
+        assertEquals("xinyu.gan@memblaze.com", params.get(BuildResource.TRIGGER_USER_PARAM));
+    }
+
+    @Test
+    public void testTriggerBuildTriggerUserCannotBeSpoofed() {
+        ApplicationUser clicker = mock(ApplicationUser.class);
+        when(clicker.getName()).thenReturn("real.user");
+        when(authContext.getCurrentUser()).thenReturn(clicker);
+        MultivaluedMap<String, String> query = new MultivaluedMapImpl();
+        query.add("PR", "x");
+        query.add(BuildResource.TRIGGER_USER_PARAM, "someone.else");
+
+        Map<String, Object> params = triggerAndCaptureParams(query);
+
+        assertEquals("real.user", params.get(BuildResource.TRIGGER_USER_PARAM));
+    }
+
+    @Test
+    public void testTriggerBuildNoParamsDoesNotAddTriggerUser() {
+        ApplicationUser clicker = mock(ApplicationUser.class);
+        when(clicker.getName()).thenReturn("real.user");
+        when(authContext.getCurrentUser()).thenReturn(clicker);
+
+        Map<String, Object> params = triggerAndCaptureParams(new MultivaluedMapImpl());
+
+        assertEquals(Collections.emptyMap(), params);
     }
 
     @Test

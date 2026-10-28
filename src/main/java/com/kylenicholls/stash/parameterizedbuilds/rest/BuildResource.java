@@ -54,6 +54,9 @@ import org.apache.commons.compress.utils.Lists;
 @Deprecated
 @AnonymousAllowed
 public class BuildResource extends RestResource {
+    /** Jenkins parameter that receives the username of whoever clicked "Start Build". */
+    static final String TRIGGER_USER_PARAM = "trigger";
+
     private SettingsService settingsService;
     private Jenkins jenkins;
     private final ApplicationPropertiesService applicationPropertiesService;
@@ -99,7 +102,15 @@ public class BuildResource extends RestResource {
                 Map<String, Object> paramList =
                         uriInfo.getQueryParameters().entrySet()
                                 .stream()
-                                .collect(Collectors.toMap(Entry::getKey, e->e.getValue().get(0)));
+                                .collect(Collectors.toMap(Entry::getKey, e->e.getValue().get(0),
+                                        (a, b) -> a, LinkedHashMap::new));
+
+                // Pass the user who clicked "Start Build". Set server-side from the
+                // authenticated session so it overrides any value sent from the dialog.
+                // Only added to parameterized jobs: a plain /build URL can't take params.
+                if (!paramList.isEmpty() && user != null) {
+                    paramList.put(TRIGGER_USER_PARAM, user.getName());
+                }
                 Job job = jobToBuild.copy().buildParameters(paramList).build();
 
                 //create bitbucketVariables with only branch and trigger to resolve pipelines
